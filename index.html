@@ -338,21 +338,27 @@ map.addLayer(cluster);
 async function reloadData() {
     setLoading(true, 'Lade Daten…');
     document.getElementById('reload-btn').disabled = true;
+    allPlaces = [];
 
     try {
         const ts = Date.now();
-        const texts = await Promise.all(
-            Array.from({length: PLACES_CHUNKS}, (_, i) =>
-                fetch(`places_${i}.jsonl?_=${ts}`)
-                    .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status} (places_${i}.jsonl)`); return r.text(); })
-            )
+        // Start all fetches in parallel, process in order for progressive rendering
+        const fetches = Array.from({length: PLACES_CHUNKS}, (_, i) =>
+            fetch(`places_${i}.jsonl?_=${ts}`)
+                .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status} (places_${i}.jsonl)`); return r.text(); })
         );
-        allPlaces = texts.flatMap(t =>
-            t.trim().split('\n').filter(Boolean).map(l => { try { return JSON.parse(l); } catch { return null; } })
-        ).filter(p => p && typeof p.lat === 'number' && typeof p.lng === 'number');
-
-        document.getElementById('header-count').textContent = `${allPlaces.length} Orte geladen`;
+        for (let i = 0; i < PLACES_CHUNKS; i++) {
+            setLoading(true, `Lade Daten ${i + 1} / ${PLACES_CHUNKS}…`);
+            const text = await fetches[i];
+            const chunk = text.trim().split('\n').filter(Boolean)
+                .map(l => { try { return JSON.parse(l); } catch { return null; } })
+                .filter(p => p && typeof p.lat === 'number' && typeof p.lng === 'number');
+            allPlaces.push(...chunk);
+            document.getElementById('header-count').textContent = allPlaces.length + ' Orte';
+            renderMarkers();
+        }
         buildDynamicFilters();
+        document.getElementById('header-count').textContent = allPlaces.length + ' Orte geladen';
         renderMarkers();
         setStatus(`${allPlaces.length} Orte geladen · park4night`);
     } catch (err) {
@@ -525,9 +531,12 @@ function matchesFilters(p) {
 }
 
 // ── Marker rendering ─────────────────────────────────────────────────────────
+const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+
 function renderMarkers() {
     cluster.clearLayers();
-    const visible = allPlaces.filter(matchesFilters);
+    const bounds = map.getBounds().pad(0.3);
+    const visible = allPlaces.filter(p => matchesFilters(p) && bounds.contains([p.lat, p.lng]));
 
     cluster.addLayers(visible.map(p => {
         const m = L.marker([p.lat, p.lng], { icon: placeIcon(p) });
@@ -543,8 +552,10 @@ function renderMarkers() {
     document.getElementById('empty-hint')
         .classList.toggle('visible', visible.length === 0 && allPlaces.length > 0);
 
-    setStatus(`${visible.length} von ${allPlaces.length} Orten sichtbar · park4night`);
+    setStatus(`${visible.length} im Kartenausschnitt · ${allPlaces.length} geladen · park4night`);
 }
+
+map.on('moveend zoomend', debounce(renderMarkers, 150));
 
 // ── Marker icon ──────────────────────────────────────────────────────────────
 function placeIcon(p) {
