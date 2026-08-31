@@ -336,7 +336,7 @@ map.addLayer(cluster);
 
 // ── Search circle ────────────────────────────────────────────────────────────
 function getCircleRadius() {
-    return map.getCenter().distanceTo(map.getBounds().getNorthEast()) * 0.6;
+    return map.getCenter().distanceTo(map.getBounds().getNorthEast()) * 0.4;
 }
 
 const searchCircle = L.circle(map.getCenter(), {
@@ -683,6 +683,7 @@ function esc(str) {
 }
 
 // ── Init ─────────────────────────────────────────────────────────────────────
+map.locate({ setView: true, maxZoom: 9 });
 reloadData();
 </script>
 </body>
