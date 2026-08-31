@@ -334,6 +334,21 @@ const cluster = L.markerClusterGroup({
 });
 map.addLayer(cluster);
 
+// ── Search circle ────────────────────────────────────────────────────────────
+function getCircleRadius() {
+    return map.getCenter().distanceTo(map.getBounds().getNorthEast()) * 0.6;
+}
+
+const searchCircle = L.circle(map.getCenter(), {
+    radius: getCircleRadius(),
+    color: '#4fc3f7', weight: 2, opacity: 0.7,
+    fillColor: '#4fc3f7', fillOpacity: 0.08,
+    interactive: false,
+}).addTo(map);
+
+// keep circle centered while panning (smooth)
+map.on('move', () => searchCircle.setLatLng(map.getCenter()));
+
 // ── Data loading ─────────────────────────────────────────────────────────────
 async function reloadData() {
     setLoading(true, 'Lade Daten…');
@@ -535,8 +550,11 @@ const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = se
 
 function renderMarkers() {
     cluster.clearLayers();
-    const bounds = map.getBounds().pad(0.3);
-    const visible = allPlaces.filter(p => matchesFilters(p) && bounds.contains([p.lat, p.lng]));
+    const center = searchCircle.getLatLng();
+    const radius = searchCircle.getRadius();
+    const visible = allPlaces.filter(p =>
+        matchesFilters(p) && L.latLng(p.lat, p.lng).distanceTo(center) <= radius
+    );
 
     cluster.addLayers(visible.map(p => {
         const m = L.marker([p.lat, p.lng], { icon: placeIcon(p) });
@@ -555,7 +573,10 @@ function renderMarkers() {
     setStatus(`${visible.length} im Kartenausschnitt · ${allPlaces.length} geladen · park4night`);
 }
 
-map.on('moveend zoomend', debounce(renderMarkers, 150));
+map.on('moveend zoomend', debounce(() => {
+    searchCircle.setRadius(getCircleRadius());
+    renderMarkers();
+}, 150));
 
 // ── Marker icon ──────────────────────────────────────────────────────────────
 function placeIcon(p) {
