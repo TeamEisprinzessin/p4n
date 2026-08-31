@@ -683,8 +683,8 @@ function esc(str) {
 }
 
 // ── Init ─────────────────────────────────────────────────────────────────────
-map.locate({ setView: true, maxZoom: 9 });
-reloadData();
+map.once('locationfound locationerror', () => reloadData());
+map.locate({ setView: true, maxZoom: 13 });
 </script>
 </body>
 </html>
