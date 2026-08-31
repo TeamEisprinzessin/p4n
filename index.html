@@ -271,7 +271,7 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script>
-const PLACES_CHUNKS = 2;
+const PLACES_CHUNKS = 9;
 'use strict';
 
 // ── Filter state ─────────────────────────────────────────────────────────────
@@ -341,14 +341,15 @@ async function reloadData() {
 
     try {
         const ts = Date.now();
-        const chunks = await Promise.all(
+        const texts = await Promise.all(
             Array.from({length: PLACES_CHUNKS}, (_, i) =>
-                fetch(`places_${i}.json?_=${ts}`)
-                    .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status} (places_${i}.json)`); return r.json(); })
+                fetch(`places_${i}.jsonl?_=${ts}`)
+                    .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status} (places_${i}.jsonl)`); return r.text(); })
             )
         );
-        allPlaces = chunks.flat()
-            .filter(p => typeof p.lat === 'number' && typeof p.lng === 'number');
+        allPlaces = texts.flatMap(t =>
+            t.trim().split('\n').filter(Boolean).map(l => { try { return JSON.parse(l); } catch { return null; } })
+        ).filter(p => p && typeof p.lat === 'number' && typeof p.lng === 'number');
 
         document.getElementById('header-count').textContent = `${allPlaces.length} Orte geladen`;
         buildDynamicFilters();
