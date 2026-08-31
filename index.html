@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>park4night – Stellplatz-Finder</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"/>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"/>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; overflow: hidden; }
+
+        #map { position: fixed; inset: 0; }
+
+        /* ── Sidebar ─────────────────────────────────────────────── */
+        #sidebar {
+            position: fixed; top: 0; left: 0; height: 100%; width: 270px;
+            background: #1a1a2e; color: #fff; z-index: 1000;
+            display: flex; flex-direction: column;
+            transition: transform .3s ease; box-shadow: 4px 0 16px rgba(0,0,0,.4);
+        }
+        #sidebar.collapsed { transform: translateX(-270px); }
+
+        #sidebar-header { padding: 18px 16px 14px; background: #16213e; border-bottom: 1px solid #0f3460; flex-shrink: 0; }
+        #sidebar-header h1 { font-size: 17px; font-weight: 700; letter-spacing: .3px; }
+        #sidebar-header p  { font-size: 11px; color: #777; margin-top: 3px; }
+        #sidebar-close {
+            background: none; border: none; color: #666; font-size: 18px;
+            cursor: pointer; padding: 2px 4px; line-height: 1; border-radius: 4px; flex-shrink: 0;
+        }
+        #sidebar-close:hover { color: #fff; background: rgba(255,255,255,.1); }
+
+        #filters { flex: 1; overflow-y: auto; padding: 8px 10px; }
+        #filters::-webkit-scrollbar { width: 4px; }
+        #filters::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+
+        .filter-group-title {
+            font-size: 10px; text-transform: uppercase; color: #666;
+            letter-spacing: 1.2px; margin: 14px 0 6px 2px;
+        }
+
+        /* ── Range sliders (Rating / Spots) ─────────────────────── */
+        .slider-wrap { padding: 4px 2px 2px; }
+        .slider-val { font-size: 12px; color: #e94560; font-weight: 600; float: right; }
+        input[type=range].filter-slider {
+            -webkit-appearance: none; appearance: none;
+            width: 100%; height: 4px; border-radius: 2px;
+            background: #2a2a4a; outline: none; cursor: pointer; display: block;
+        }
+        input[type=range].filter-slider::-webkit-slider-thumb {
+            -webkit-appearance: none; appearance: none;
+            width: 18px; height: 18px; border-radius: 50%;
+            background: #e94560; cursor: pointer;
+            box-shadow: 0 0 0 3px rgba(233,69,96,.25);
+        }
+        input[type=range].filter-slider::-moz-range-thumb {
+            width: 18px; height: 18px; border-radius: 50%;
+            background: #e94560; cursor: pointer; border: none;
+        }
+        .dual-range { position: relative; height: 24px; margin: 4px 0 2px; }
+        .dual-range-track {
+            position: absolute; top: 50%; transform: translateY(-50%);
+            left: 0; right: 0; height: 4px; border-radius: 2px; background: #2a2a4a;
+        }
+        .dual-range-fill { position: absolute; height: 100%; background: #e94560; border-radius: 2px; }
+        .dual-range input[type=range] {
+            position: absolute; top: 50%; transform: translateY(-50%);
+            width: 100%; margin: 0; -webkit-appearance: none; appearance: none;
+            background: transparent; outline: none; pointer-events: none; height: 20px;
+        }
+        .dual-range input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none; appearance: none;
+            width: 18px; height: 18px; border-radius: 50%;
+            background: #e94560; cursor: pointer; pointer-events: all;
+            box-shadow: 0 0 0 3px rgba(233,69,96,.25);
+        }
+        .dual-range input[type=range]::-moz-range-thumb {
+            width: 18px; height: 18px; border-radius: 50%;
+            background: #e94560; cursor: pointer; border: none; pointer-events: all;
+        }
+        .slider-labels {
+            display: flex; justify-content: space-between;
+            font-size: 10px; color: #555; margin: 4px 1px 8px;
+        }
+
+        /* ── Checkbox filter buttons (Services / Activities) ─────── */
+        .filter-btn {
+            display: flex; align-items: center; gap: 9px; width: 100%;
+            padding: 8px 10px; border: none; border-radius: 8px;
+            background: transparent; color: #ccc; cursor: pointer;
+            text-align: left; font-size: 12px; transition: background .15s;
+            margin-bottom: 1px;
+        }
+        .filter-btn:hover { background: rgba(255,255,255,.08); color: #fff; }
+        .filter-btn.active { background: rgba(233,69,96,.15); color: #fff; }
+        .filter-check {
+            width: 14px; height: 14px; border: 1px solid #444; border-radius: 3px;
+            flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+            font-size: 10px; line-height: 1; transition: all .15s;
+        }
+        .filter-btn.active .filter-check { background: #e94560; border-color: #e94560; color: #fff; }
+        .filter-label { flex: 1; line-height: 1.3; }
+        .filter-count {
+            font-size: 11px; color: #555; background: rgba(255,255,255,.06);
+            padding: 1px 6px; border-radius: 10px; min-width: 24px; text-align: center;
+        }
+
+        /* ── Footer ─────────────────────────────────────────────── */
+        #sidebar-footer { padding: 10px; border-top: 1px solid #0f3460; flex-shrink: 0; }
+        #meta { font-size: 11px; color: #555; text-align: center; margin-bottom: 8px; }
+        #meta span { color: #888; }
+        #reload-btn {
+            width: 100%; padding: 11px; background: #e94560; color: #fff;
+            border: none; border-radius: 8px; font-size: 13px; font-weight: 600;
+            cursor: pointer; transition: background .2s;
+        }
+        #reload-btn:hover:not(:disabled) { background: #c73652; }
+        #reload-btn:disabled { background: #444; cursor: not-allowed; color: #777; }
+
+        /* ── Toggle & locate buttons ────────────────────────────── */
+        #toggle-btn {
+            position: fixed; top: 12px; left: 12px; z-index: 1001;
+            background: #fff; border: none; border-radius: 8px;
+            width: 38px; height: 38px; font-size: 18px; cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0,0,0,.3);
+            display: none; align-items: center; justify-content: center;
+        }
+        #sidebar.collapsed + #toggle-btn { display: flex; }
+        #locate-btn {
+            position: fixed; bottom: 70px; right: 12px; z-index: 1000;
+            background: #fff; border: none; border-radius: 8px;
+            width: 38px; height: 38px; font-size: 20px; cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0,0,0,.3); line-height: 1;
+        }
+        #locate-btn:hover { background: #f5f5f5; }
+
+        /* ── Loading indicator ──────────────────────────────────── */
+        #loading {
+            position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+            background: #1a1a2e; color: #fff; padding: 9px 18px;
+            border-radius: 20px; font-size: 13px; z-index: 2000;
+            display: none; align-items: center; gap: 9px;
+            box-shadow: 0 4px 16px rgba(0,0,0,.5); white-space: nowrap;
+        }
+        #loading.visible { display: flex; }
+        .spinner {
+            width: 15px; height: 15px; border: 2px solid rgba(255,255,255,.25);
+            border-top-color: #fff; border-radius: 50%;
+            animation: spin .7s linear infinite; flex-shrink: 0;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ── Status bar ─────────────────────────────────────────── */
+        #status-bar {
+            position: fixed; bottom: 0; left: 270px; right: 0;
+            background: rgba(22,22,44,.88); color: #666;
+            padding: 3px 12px; font-size: 11px; z-index: 1000;
+            transition: left .3s; backdrop-filter: blur(4px);
+        }
+        #sidebar.collapsed ~ #status-bar { left: 0; }
+
+        /* ── Leaflet overrides ──────────────────────────────────── */
+        .leaflet-top.leaflet-right { top: 8px; right: 8px; }
+        .leaflet-popup-content-wrapper { border-radius: 12px; padding: 0; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,.25); }
+        .leaflet-popup-content { margin: 0; min-width: 240px; max-width: 320px; }
+        .popup-header { background: #1a1a2e; color: #fff; padding: 12px 14px; display: flex; align-items: center; gap: 10px; }
+        .popup-emoji { font-size: 26px; line-height: 1; }
+        .popup-title { font-size: 14px; font-weight: 600; line-height: 1.3; }
+        .popup-subtitle { font-size: 11px; color: #888; margin-top: 2px; }
+        .popup-body { padding: 10px 14px; }
+        .popup-row { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; padding: 4px 0; color: #444; border-bottom: 1px solid #f2f2f2; }
+        .popup-row:last-child { border-bottom: none; }
+        .popup-row-icon { width: 18px; text-align: center; flex-shrink: 0; margin-top: 1px; }
+        .popup-stars { color: #f4a420; }
+        a.popup-link { color: #e94560; text-decoration: none; }
+        a.popup-link:hover { text-decoration: underline; }
+
+        /* ── Place markers ──────────────────────────────────────── */
+        .place-marker { display:flex; flex-direction:column; align-items:center; filter:drop-shadow(0 2px 5px rgba(0,0,0,.45)); }
+        .place-marker-badge { background:#fff; border-radius:8px; padding:3px 3px 2px; width:36px; text-align:center; border-width:2px; border-style:solid; }
+        .place-marker-icon { display:block; margin:0 auto; width:22px; height:22px; }
+        .place-marker-rating { font-size:9px; font-weight:700; line-height:1.3; white-space:nowrap; }
+        .place-marker-tip { width:0; height:0; border-left:6px solid transparent; border-right:6px solid transparent; }
+
+        /* ── Legend ─────────────────────────────────────────────── */
+        #legend { padding:4px 2px; }
+        .legend-item { display:flex; align-items:center; gap:8px; padding:4px 6px; font-size:12px; color:#bbb; }
+        .legend-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+        .legend-icon { width:20px; height:20px; flex-shrink:0; }
+
+        /* ── Empty hint ─────────────────────────────────────────── */
+        #empty-hint {
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: rgba(0,0,0,.78); color: #fff; padding: 18px 28px;
+            border-radius: 14px; font-size: 15px; z-index: 1500;
+            pointer-events: none; display: none; text-align: center; line-height: 1.7;
+        }
+        #empty-hint.visible { display: block; }
+
+        @media (max-width: 600px) {
+            #sidebar { width: 100%; }
+            #sidebar.collapsed { transform: translateX(-100%); }
+            #status-bar { left: 0; }
+        }
+    </style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div id="sidebar">
+    <div id="sidebar-header">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start">
+            <div>
+                <h1>🚐 park4night Finder</h1>
+                <p id="header-count">Lädt…</p>
+            </div>
+            <button id="sidebar-close" onclick="toggleSidebar()" title="Sidebar ausblenden">✕</button>
+        </div>
+    </div>
+    <div id="filters">
+        <div class="filter-group-title">Bewertung <span id="rating-val" class="slider-val">Alle</span></div>
+        <div class="slider-wrap">
+            <input type="range" id="rating-filter" class="filter-slider" min="0" max="5" step="0.5" value="0">
+            <div class="slider-labels">
+                <span>0</span><span>1</span><span>2</span><span>3</span><span>4</span><span>5★</span>
+            </div>
+        </div>
+
+        <div class="filter-group-title">Stellplätze <span id="spots-val" class="slider-val">Alle</span></div>
+        <div class="slider-wrap">
+            <div class="dual-range">
+                <div class="dual-range-track"><div class="dual-range-fill" id="spots-fill"></div></div>
+                <input type="range" id="spots-min" min="0" max="50" step="5" value="0">
+                <input type="range" id="spots-max" min="0" max="50" step="5" value="50">
+            </div>
+            <div class="slider-labels">
+                <span>0</span><span>10</span><span>20</span><span>30</span><span>40</span><span>50</span>
+            </div>
+        </div>
+
+        <div class="filter-group-title">Kategorie</div>
+        <div id="category-filter"><div style="font-size:11px;color:#444;padding:4px 6px">Wird geladen…</div></div>
+
+        <div class="filter-group-title">Services</div>
+        <div id="services-filter"><div style="font-size:11px;color:#444;padding:4px 6px">Wird geladen…</div></div>
+
+        <div class="filter-group-title">Aktivitäten</div>
+        <div id="activities-filter"><div style="font-size:11px;color:#444;padding:4px 6px">Wird geladen…</div></div>
+
+        <div class="filter-group-title">Legende</div>
+        <div id="legend"></div>
+    </div>
+    <div id="sidebar-footer">
+        <div id="meta">
+            Sichtbar: <span id="visible-count">0</span> /
+            <span id="total-count">0</span> Orte
+        </div>
+        <button id="reload-btn" onclick="reloadData()">🔄 Daten neu laden</button>
+    </div>
+</div>
+
+<button id="toggle-btn" onclick="toggleSidebar()">☰</button>
+<button id="locate-btn" onclick="locateMe()" title="Meinen Standort anzeigen">📍</button>
+
+<div id="loading"><div class="spinner"></div><span id="loading-text">Lade…</span></div>
+<div id="empty-hint">😶 Keine Orte mit diesen Filtern gefunden</div>
+<div id="status-bar">Lade Daten…</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script>
+const PLACES_CHUNKS = 2;
+'use strict';
+
+// ── Filter state ─────────────────────────────────────────────────────────────
+const state = {
+    minRating:  0,
+    minSpots:   0,
+    maxSpots:   50,
+    categories: new Set(),
+    services:   new Set(),
+    activities: new Set(),
+};
+
+// ── Park4night category styles ───────────────────────────────────────────────
+const CAT_STYLE = {
+    'icon_p':      { color: '#5C7F8A', label: 'Parkplatz Tag und Nacht' },
+    'icon_ar':     { color: '#78909C', label: 'Rastplatz' },
+    'icon_apn':    { color: '#8BC34A', label: 'Picknickplatz' },
+    'icon_acc_g':  { color: '#27AE60', label: 'Kostenloser WoMo-Platz' },
+    'icon_acc_p':  { color: '#E67E22', label: 'Kostenpfl. WoMo-Platz' },
+    'icon_acc_pr': { color: '#C0392B', label: 'Privater WoMo-Stellplatz' },
+    'icon_or':     { color: '#795548', label: 'Offroad (4x4)' },
+    'icon_f':      { color: '#6D4C41', label: 'Auf dem Bauernhof/Winzer' },
+    'icon_c':      { color: '#2980B9', label: 'Campingplatz' },
+    'icon_ass':    { color: '#8E44AD', label: 'VE ohne Parkmöglichkeit' },
+    'icon_pj':     { color: '#F39C12', label: 'Tagesparkplatz' },
+    'icon_ep':     { color: '#16A085', label: 'Empfang unter Privatpersonen' },
+    'icon_ds':     { color: '#2C3E50', label: 'Zusätzliche Dienstleistungen' },
+    'icon_pss':    { color: '#1ABC9C', label: 'WoMo-Platz ohne Dienstleistungen' },
+    'icon_pn':      { color: '#7CB342', label: 'Umgeben von Natur' },
+};
+const CAT_DEFAULT = { color: '#e94560', label: 'Sonstiger Ort' };
+const P4N_ICON = key => `https://cdn6.park4night.com/images/svg/icons/access/${key}.svg?v=79e34f7`;
+
+let allPlaces = [];
+
+// ── Map setup ────────────────────────────────────────────────────────────────
+const map = L.map('map', { center: [48, 14], zoom: 5, zoomControl: false });
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · Daten: park4night',
+    maxZoom: 19,
+}).addTo(map);
+
+L.control.zoom({ position: 'topright' }).addTo(map);
+
+const cluster = L.markerClusterGroup({
+    maxClusterRadius: 55, spiderfyOnMaxZoom: true,
+    showCoverageOnHover: false, zoomToBoundsOnClick: true,
+    iconCreateFunction(c) {
+        const n = c.getChildCount();
+        const sz = n < 10 ? 34 : n < 100 ? 40 : 48;
+        return L.divIcon({
+            html: `<div style="background:#e94560;width:${sz}px;height:${sz}px;border-radius:50%;` +
+                  `display:flex;align-items:center;justify-content:center;color:#fff;` +
+                  `font-weight:700;font-size:${sz < 40 ? 13 : 15}px;` +
+                  `border:2px solid rgba(255,255,255,.7);box-shadow:0 2px 8px rgba(0,0,0,.3)">${n}</div>`,
+            className: '', iconSize: [sz, sz],
+        });
+    },
+});
+map.addLayer(cluster);
+
+// ── Data loading ─────────────────────────────────────────────────────────────
+async function reloadData() {
+    setLoading(true, 'Lade Daten…');
+    document.getElementById('reload-btn').disabled = true;
+
+    try {
+        const ts = Date.now();
+        const chunks = await Promise.all(
+            Array.from({length: PLACES_CHUNKS}, (_, i) =>
+                fetch(`places_${i}.json?_=${ts}`)
+                    .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status} (places_${i}.json)`); return r.json(); })
+            )
+        );
+        allPlaces = chunks.flat()
+            .filter(p => typeof p.lat === 'number' && typeof p.lng === 'number');
+
+        document.getElementById('header-count').textContent = `${allPlaces.length} Orte geladen`;
+        buildDynamicFilters();
+        renderMarkers();
+        setStatus(`${allPlaces.length} Orte geladen · park4night`);
+    } catch (err) {
+        document.getElementById('header-count').textContent = 'Ladefehler';
+        setStatus(`❌ Daten konnten nicht geladen werden: ${err.message}`);
+    } finally {
+        setLoading(false);
+        document.getElementById('reload-btn').disabled = false;
+    }
+}
+
+// ── Dynamic filter generation ────────────────────────────────────────────────
+function buildDynamicFilters() {
+    const catCounts = new Map();
+    const svcCounts = new Map();
+    const actCounts = new Map();
+
+    allPlaces.forEach(p => {
+        if (p.category_key) catCounts.set(p.category_key, (catCounts.get(p.category_key) || 0) + 1);
+        (p.services   || []).forEach(s => svcCounts.set(s, (svcCounts.get(s) || 0) + 1));
+        (p.activities || []).forEach(a => actCounts.set(a, (actCounts.get(a) || 0) + 1));
+    });
+
+    renderCategoryFilter(catCounts);
+    renderCheckboxGroup('services-filter',   svcCounts, state.services,   'svc');
+    renderCheckboxGroup('activities-filter', actCounts, state.activities,  'act');
+    buildLegend(catCounts);
+}
+
+function renderCategoryFilter(counts) {
+    const el = document.getElementById('category-filter');
+    el.innerHTML = '';
+    if (counts.size === 0) {
+        el.innerHTML = '<div style="font-size:11px;color:#444;padding:4px 6px">Keine Daten</div>';
+        return;
+    }
+    [...counts.entries()].sort((a, b) => b[1] - a[1]).forEach(([key, count]) => {
+        const style  = CAT_STYLE[key] || CAT_DEFAULT;
+        const active = state.categories.has(key);
+        const btn = document.createElement('button');
+        btn.className = 'filter-btn' + (active ? ' active' : '');
+        btn.dataset.label = key;
+        btn.innerHTML =
+            `<span class="filter-check">${active ? '✓' : ''}</span>` +
+            `<img src="${P4N_ICON(key)}" width="18" height="18" style="flex-shrink:0;vertical-align:middle" onerror="this.style.display='none'">` +
+            `<span class="filter-label">${esc(style.label)}</span>` +
+            `<span class="filter-count">${count}</span>`;
+        btn.addEventListener('click', () => toggleCheckbox(btn, key, state.categories));
+        el.appendChild(btn);
+    });
+}
+
+function buildLegend(catCounts) {
+    const el = document.getElementById('legend');
+    el.innerHTML = '';
+    if (catCounts.size === 0) return;
+    [...catCounts.entries()].sort((a, b) => b[1] - a[1]).forEach(([key]) => {
+        const style = CAT_STYLE[key] || CAT_DEFAULT;
+        const item = document.createElement('div');
+        item.className = 'legend-item';
+        item.innerHTML =
+            `<span class="legend-dot" style="background:${style.color}"></span>` +
+            `<img class="legend-icon" src="${P4N_ICON(key)}" onerror="this.style.display='none'">` +
+            `<span>${esc(style.label)}</span>`;
+        el.appendChild(item);
+    });
+}
+
+function renderCheckboxGroup(containerId, counts, activeSet, prefix) {
+    const el = document.getElementById(containerId);
+    el.innerHTML = '';
+
+    if (counts.size === 0) {
+        el.innerHTML = '<div style="font-size:11px;color:#444;padding:4px 6px">Keine Daten</div>';
+        return;
+    }
+
+    [...counts.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .forEach(([label, count]) => {
+            const active = activeSet.has(label);
+            const btn = document.createElement('button');
+            btn.className = 'filter-btn' + (active ? ' active' : '');
+            btn.dataset.label = label;
+            btn.innerHTML =
+                `<span class="filter-check">${active ? '✓' : ''}</span>` +
+                `<span class="filter-label">${esc(label)}</span>` +
+                `<span class="filter-count">${count}</span>`;
+            btn.addEventListener('click', () => toggleCheckbox(btn, label, activeSet));
+            el.appendChild(btn);
+        });
+}
+
+function toggleCheckbox(btn, label, activeSet) {
+    if (activeSet.has(label)) {
+        activeSet.delete(label);
+        btn.classList.remove('active');
+        btn.querySelector('.filter-check').textContent = '';
+    } else {
+        activeSet.add(label);
+        btn.classList.add('active');
+        btn.querySelector('.filter-check').textContent = '✓';
+    }
+    renderMarkers();
+}
+
+// ── Range sliders (Rating / Spots) ──────────────────────────────────────────────────────────
+function updateSliderTrack(slider) {
+    const pct = (slider.value - slider.min) / (slider.max - slider.min) * 100;
+    slider.style.background =
+        `linear-gradient(to right, #e94560 ${pct}%, #2a2a4a ${pct}%)`;
+}
+
+function updateDualRange() {
+    const minSlider = document.getElementById('spots-min');
+    const maxSlider = document.getElementById('spots-max');
+    const minV = parseInt(minSlider.value);
+    const maxV = parseInt(maxSlider.value);
+    const fill = document.getElementById('spots-fill');
+    fill.style.left  = (minV / 50 * 100) + '%';
+    fill.style.right = ((50 - maxV) / 50 * 100) + '%';
+    minSlider.style.zIndex = minV >= maxV - 5 ? 5 : 1;
+    state.minSpots = minV;
+    state.maxSpots = maxV;
+    document.getElementById('spots-val').textContent =
+        (minV === 0 && maxV === 50) ? 'Alle' : `${minV}–${maxV}`;
+    renderMarkers();
+}
+
+document.getElementById('rating-filter').addEventListener('input', e => {
+    state.minRating = parseFloat(e.target.value);
+    document.getElementById('rating-val').textContent =
+        state.minRating > 0 ? 'ab ' + state.minRating.toFixed(1) + ' ★' : 'Alle';
+    updateSliderTrack(e.target);
+    renderMarkers();
+});
+
+document.getElementById('spots-min').addEventListener('input', e => {
+    if (parseInt(e.target.value) > state.maxSpots) e.target.value = state.maxSpots;
+    updateDualRange();
+});
+
+document.getElementById('spots-max').addEventListener('input', e => {
+    if (parseInt(e.target.value) < state.minSpots) e.target.value = state.minSpots;
+    updateDualRange();
+});
+
+updateSliderTrack(document.getElementById('rating-filter'));
+updateDualRange();
+
+// ── Filter predicate ─────────────────────────────────────────────────────────
+function matchesFilters(p) {
+    if (state.minRating > 0 && (parseFloat(p.rating) || 0) < state.minRating) return false;
+    if (state.minSpots > 0 || state.maxSpots < 50) {
+        const s = parseInt(p.spots) || 0;
+        if (s < state.minSpots || s > state.maxSpots) return false;
+    }
+
+    if (state.categories.size > 0 && !state.categories.has(p.category_key || '')) return false;
+
+    if (state.services.size > 0) {
+        const has = new Set(p.services || []);
+        for (const s of state.services) { if (!has.has(s)) return false; }
+    }
+    if (state.activities.size > 0) {
+        const has = new Set(p.activities || []);
+        for (const a of state.activities) { if (!has.has(a)) return false; }
+    }
+    return true;
+}
+
+// ── Marker rendering ─────────────────────────────────────────────────────────
+function renderMarkers() {
+    cluster.clearLayers();
+    const visible = allPlaces.filter(matchesFilters);
+
+    cluster.addLayers(visible.map(p => {
+        const m = L.marker([p.lat, p.lng], { icon: placeIcon(p) });
+        m.bindPopup(buildPopup(p), { maxWidth: 320 });
+        return m;
+    }));
+
+    const vEl = document.getElementById('visible-count');
+    const tEl = document.getElementById('total-count');
+    vEl.textContent = visible.length;
+    tEl.textContent = allPlaces.length;
+
+    document.getElementById('empty-hint')
+        .classList.toggle('visible', visible.length === 0 && allPlaces.length > 0);
+
+    setStatus(`${visible.length} von ${allPlaces.length} Orten sichtbar · park4night`);
+}
+
+// ── Marker icon ──────────────────────────────────────────────────────────────
+function placeIcon(p) {
+    const key   = p.category_key || 'icon_p';
+    const style = CAT_STYLE[key] || CAT_DEFAULT;
+    const color = style.color;
+    const rating = parseFloat(p.rating) || 0;
+    const rStr   = rating > 0 ? rating.toFixed(1) + '★' : '';
+    return L.divIcon({
+        html: `<div class="place-marker">` +
+              `<div class="place-marker-badge" style="border-color:${color}">` +
+              `<img class="place-marker-icon" src="${P4N_ICON(key)}" onerror="this.style.opacity='.3'">` +
+              (rStr ? `<div class="place-marker-rating" style="color:${color}">${rStr}</div>` : '') +
+              `</div>` +
+              `<div class="place-marker-tip" style="border-top:8px solid ${color}"></div>` +
+              `</div>`,
+        className: '',
+        iconSize:    [36, rStr ? 54 : 46],
+        iconAnchor:  [18, rStr ? 54 : 46],
+        popupAnchor: [0,  rStr ? -56 : -48],
+    });
+}
+
+// ── Popup builder ────────────────────────────────────────────────────────────
+function buildPopup(p) {
+    const rating = parseFloat(p.rating) || 0;
+    const addr   = [p.street, p.city, p.country].filter(Boolean).join(', ');
+    const rows   = [];
+
+    const row = (icon, html) =>
+        `<div class="popup-row">` +
+        `<span class="popup-row-icon">${icon}</span><span>${html}</span></div>`;
+
+    if (rating > 0)
+        rows.push(row('⭐',
+            `<span class="popup-stars">${starStr(rating)}</span>&ensp;${rating}/5`));
+    if (addr)
+        rows.push(row('📍', esc(addr)));
+    if (p.price_parking)
+        rows.push(row('💶', esc(p.price_parking)));
+    if (p.spots && p.spots !== '0')
+        rows.push(row('🅿️', `${esc(p.spots)} Stellplätze`));
+    if (p.opening)
+        rows.push(row('🕐', esc(p.opening)));
+    if (p.services?.length)
+        rows.push(row('🔧', esc(p.services.join(' · '))));
+    if (p.activities?.length)
+        rows.push(row('🏃', esc(p.activities.join(' · '))));
+    if (p.description) {
+        const d = p.description;
+        rows.push(row('ℹ️', esc(d.length > 130 ? d.slice(0, 130) + '…' : d)));
+    }
+    rows.push(row('🔗',
+        `<a href="${esc(p.url)}" target="_blank" rel="noopener noreferrer" class="popup-link">` +
+        `park4night öffnen ↗</a>`));
+
+    const catStyle = CAT_STYLE[p.category_key] || CAT_DEFAULT;
+    return `<div class="popup-header">
+        <span class="popup-emoji"><img src="${esc(P4N_ICON(p.category_key || 'icon_p'))}" width="28" height="28" style="vertical-align:middle;filter:brightness(0) invert(1)" onerror="this.outerHTML='🚐'"></span>
+        <div>
+            <div class="popup-title">${esc(p.name || '#' + p.place_id)}</div>
+            <div class="popup-subtitle" style="color:${catStyle.color}">${esc(p.category || catStyle.label)}</div>
+        </div>
+    </div>
+    <div class="popup-body">${rows.join('')}</div>`;
+}
+
+function starStr(r) {
+    const full  = Math.floor(r);
+    const half  = (r - full) >= 0.25 && (r - full) < 0.75;
+    const empty = 5 - full - (half ? 1 : 0);
+    return '★'.repeat(full) + (half ? '½' : '') + '☆'.repeat(empty);
+}
+
+// ── UI helpers ───────────────────────────────────────────────────────────────
+function setLoading(on, text) {
+    document.getElementById('loading').classList.toggle('visible', on);
+    if (text) document.getElementById('loading-text').textContent = text;
+}
+
+function setStatus(text) {
+    document.getElementById('status-bar').textContent = text;
+}
+
+function toggleSidebar() {
+    document.getElementById('sidebar').classList.toggle('collapsed');
+}
+
+function locateMe() {
+    map.locate({ setView: true, maxZoom: 13 });
+    map.once('locationfound', e => {
+        L.circleMarker(e.latlng, {
+            radius: 8, color: '#e94560', fillColor: '#e94560', fillOpacity: .3,
+        }).addTo(map);
+    });
+    map.once('locationerror', () => alert('Standort konnte nicht ermittelt werden.'));
+}
+
+// Prevents XSS from place data
+function esc(str) {
+    return String(str)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+reloadData();
+</script>
+</body>
+</html>
