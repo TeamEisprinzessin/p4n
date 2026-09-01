@@ -135,6 +135,22 @@
         }
         #locate-btn:hover { background: #f5f5f5; }
 
+        /* ── Auto-load button ──────────────────────────── */
+        #autoload-btn {
+            position: fixed; bottom: 24px; right: 12px; z-index: 1000;
+            background: #fff; border: 2px solid #ccc; border-radius: 8px;
+            padding: 6px 10px; font-size: 12px; font-weight: 600; cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0,0,0,.3); color: #888;
+            display: flex; align-items: center; gap: 6px; white-space: nowrap;
+            transition: all .2s;
+        }
+        #autoload-btn.active { background: #e8f5e9; border-color: #43a047; color: #2e7d32; }
+        #autoload-btn .dot {
+            width: 9px; height: 9px; border-radius: 50%;
+            background: #ccc; flex-shrink: 0; transition: background .2s;
+        }
+        #autoload-btn.active .dot { background: #43a047; }
+
         /* ── Radius control ────────────────────────────── */
         #radius-control {
             position: fixed; bottom: 116px; right: 12px; z-index: 1000;
@@ -289,6 +305,9 @@
 
 <button id="toggle-btn" onclick="toggleSidebar()">☰</button>
 <button id="locate-btn" onclick="locateMe()" title="Meinen Standort anzeigen">📍</button>
+<button id="autoload-btn" onclick="toggleAutoLoad()" title="Orte im Kreis automatisch laden">
+    <span class="dot"></span>Auto-load
+</button>
 
 <div id="radius-control">
     <label>Suchradius</label>
@@ -338,6 +357,7 @@ const CAT_DEFAULT = { color: '#e94560', label: 'Sonstiger Ort' };
 const P4N_ICON = key => `https://cdn6.park4night.com/images/svg/icons/access/${key}.svg?v=79e34f7`;
 
 let allPlaces = [];
+let autoLoad = false;
 
 // ── Map setup ────────────────────────────────────────────────────────────────
 const map = L.map('map', { center: [48, 14], zoom: 5, zoomControl: false });
@@ -386,7 +406,7 @@ map.on('move', () => searchCircle.setLatLng(map.getCenter()));
 document.getElementById('radius-slider').addEventListener('input', function () {
     document.getElementById('radius-val').textContent = this.value + '%';
     searchCircle.setRadius(getCircleRadius());
-    debouncedRender();
+    if (autoLoad) debouncedRender();
 });
 
 const debouncedRender = debounce(() => {
@@ -415,11 +435,11 @@ async function reloadData() {
                 .filter(p => p && typeof p.lat === 'number' && typeof p.lng === 'number');
             allPlaces.push(...chunk);
             document.getElementById('header-count').textContent = allPlaces.length + ' Orte';
-            renderMarkers();
+            if (autoLoad) renderMarkers();
         }
         buildDynamicFilters();
         document.getElementById('header-count').textContent = allPlaces.length + ' Orte geladen';
-        renderMarkers();
+        if (autoLoad) renderMarkers();
         setStatus(`${allPlaces.length} Orte geladen · park4night`);
     } catch (err) {
         document.getElementById('header-count').textContent = 'Ladefehler';
@@ -616,7 +636,10 @@ function renderMarkers() {
     setStatus(`${visible.length} im Kartenausschnitt · ${allPlaces.length} geladen · park4night`);
 }
 
-map.on('moveend zoomend', debouncedRender);
+map.on('moveend zoomend', debounce(() => {
+    searchCircle.setRadius(getCircleRadius());
+    if (autoLoad) renderMarkers();
+}, 150));
 
 // ── Marker icon ──────────────────────────────────────────────────────────────
 function placeIcon(p) {
@@ -715,6 +738,19 @@ function locateMe() {
     map.once('locationerror', () => alert('Standort konnte nicht ermittelt werden.'));
 }
 
+function toggleAutoLoad() {
+    autoLoad = !autoLoad;
+    const btn = document.getElementById('autoload-btn');
+    btn.classList.toggle('active', autoLoad);
+    if (autoLoad) {
+        if (allPlaces.length === 0) reloadData();
+        else renderMarkers();
+    } else {
+        cluster.clearLayers();
+        setStatus('Auto-load aus · ' + allPlaces.length + ' Orte im Speicher');
+    }
+}
+
 // Prevents XSS from place data
 function esc(str) {
     return String(str)
@@ -723,7 +759,7 @@ function esc(str) {
 }
 
 // ── Init ─────────────────────────────────────────────────────────────────────
-map.once('locationfound locationerror', () => reloadData());
+
 map.locate({ setView: true, maxZoom: 13 });
 </script>
 </body>
