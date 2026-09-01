@@ -358,6 +358,7 @@ const P4N_ICON = key => `https://cdn6.park4night.com/images/svg/icons/access/${k
 
 let allPlaces = [];
 let autoLoad = false;
+let popupOpen = false;
 
 // ── Map setup ────────────────────────────────────────────────────────────────
 const map = L.map('map', { center: [48, 14], zoom: 5, zoomControl: false });
@@ -612,6 +613,7 @@ function matchesFilters(p) {
 
 // ── Marker rendering ─────────────────────────────────────────────────────────
 function renderMarkers() {
+    if (popupOpen) return;
     cluster.clearLayers();
     const center = searchCircle.getLatLng();
     const radius = searchCircle.getRadius();
@@ -640,6 +642,9 @@ map.on('moveend zoomend', debounce(() => {
     searchCircle.setRadius(getCircleRadius());
     if (autoLoad) renderMarkers();
 }, 150));
+
+map.on('popupopen',  () => { popupOpen = true; });
+map.on('popupclose', () => { popupOpen = false; if (autoLoad) renderMarkers(); });
 
 // ── Marker icon ──────────────────────────────────────────────────────────────
 function placeIcon(p) {
